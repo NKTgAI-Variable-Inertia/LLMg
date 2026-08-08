@@ -49,6 +49,7 @@
   <summary>🔑 API Keys (chỉ lưu trong phiên trình duyệt này)</summary>
   <div class="keys-grid">
     <div class="key-field"><label>Gemini</label><input type="password" id="key_gemini" autocomplete="off"></div>
+    <div class="key-field"><label>Gemini Model (tự dò, để trống)</label><input type="text" id="model_gemini" placeholder="tự động dò model free..." readonly style="color:#64748b;background:#f1f5f9;"></div>
     <div class="key-field"><label>Groq</label><input type="password" id="key_groq" autocomplete="off"></div>
     <div class="key-field"><label>Nvidia</label><input type="password" id="key_nvidia" autocomplete="off"></div>
     <div class="key-field"><label>Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
@@ -79,15 +80,67 @@
 <script>
 const $ = id => document.getElementById(id);
 
-async function callGemini(key, prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+// Candidate Gemini models to try, roughly ordered from most likely
+// to have a working free quota to least. Google renames/retires models
+// often, so we probe live instead of hardcoding one name.
+const GEMINI_CANDIDATES = [
+  'gemini-flash-latest',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-8b',
+];
+
+let cachedGeminiModel = null; // remembered for this browser session only
+
+async function tryGeminiModel(key, model, prompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const res = await fetch(url, {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  if (!res.ok) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = res.status === 404 || res.status === 429 || res.status === 400;
+    throw err;
+  }
   return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? JSON.stringify(data);
+}
+
+async function callGemini(key, prompt) {
+  const statusField = $('model_gemini');
+
+  // Reuse the model that already worked this session.
+  if (cachedGeminiModel) {
+    try {
+      const text = await tryGeminiModel(key, cachedGeminiModel, prompt);
+      statusField.value = cachedGeminiModel + ' ✓';
+      return text;
+    } catch (e) {
+      cachedGeminiModel = null; // fell through — probe again below
+    }
+  }
+
+  let lastErr = null;
+  for (const model of GEMINI_CANDIDATES) {
+    statusField.value = `đang thử ${model}...`;
+    try {
+      const text = await tryGeminiModel(key, model, prompt);
+      cachedGeminiModel = model;
+      statusField.value = model + ' ✓ (free, hoạt động)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retryable) throw e; // real error (bad key etc.) — stop immediately
+      // otherwise try the next candidate
+    }
+  }
+  statusField.value = 'không tìm được model free nào';
+  throw lastErr || new Error('Không có model Gemini nào khả dụng với key này.');
 }
 
 async function callGroq(key, prompt) {
