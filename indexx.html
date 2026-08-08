@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NKTg AI × Multi-LLM (Local Test Only)</title>
+<style>
+  :root { --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b; --err:#dc2626; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text);
+         max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; font-size: 13px; }
+  .warn { background:#fff7ed; border:1px solid #fdba74; color:#9a3412; font-size:12.5px;
+          padding:10px 12px; border-radius:8px; margin: 12px 0 20px; line-height:1.5; }
+  textarea { width:100%; min-height:100px; padding:12px; border:1px solid var(--border);
+             border-radius:8px; font-size:14px; font-family:inherit; resize:vertical; }
+  details { margin: 16px 0; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+  summary { cursor:pointer; padding:12px 14px; font-size:14px; font-weight:600; }
+  .keys-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding: 0 14px 14px; }
+  @media (max-width:640px){ .keys-grid{ grid-template-columns:1fr; } }
+  .key-field label { display:block; font-size:12px; color:var(--muted); margin-bottom:3px; }
+  .key-field input { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  .providers { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0; }
+  .providers label { display:flex; align-items:center; gap:4px; background:var(--card); border:1px solid var(--border);
+                      border-radius:20px; padding:6px 12px; font-size:13px; cursor:pointer; }
+  button { background:#0f172a; color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .results { display:grid; gap:12px; margin-top:20px; }
+  .result-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .result-card h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .result-card .text { font-size:14px; line-height:1.55; white-space:pre-wrap; }
+  .error { color:var(--err); }
+  .loading { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+
+<h1>NKTg AI × Multi-LLM — Local Test Bench</h1>
+<p class="sub">Chạy 100% trên máy bạn. Key chỉ nằm trong bộ nhớ trình duyệt, gửi thẳng tới provider, không qua server trung gian nào.</p>
+
+<div class="warn">
+  ⚠️ File này chỉ để mở trực tiếp bằng trình duyệt trên máy bạn (double-click hoặc File → Open).
+  <b>Không upload file này lên GitHub, GitHub Pages, hay bất kỳ nơi public nào</b> — nếu bạn điền key rồi lưu file,
+  key sẽ nằm trong file đó dưới dạng văn bản thường.
+</div>
+
+<details open>
+  <summary>🔑 API Keys (chỉ lưu trong phiên trình duyệt này)</summary>
+  <div class="keys-grid">
+    <div class="key-field"><label>Gemini</label><input type="password" id="key_gemini" autocomplete="off"></div>
+    <div class="key-field"><label>Groq</label><input type="password" id="key_groq" autocomplete="off"></div>
+    <div class="key-field"><label>Nvidia</label><input type="password" id="key_nvidia" autocomplete="off"></div>
+    <div class="key-field"><label>Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
+    <div class="key-field"><label>OpenRouter</label><input type="password" id="key_openrouter" autocomplete="off"></div>
+    <div class="key-field"><label>Zhipu (GLM)</label><input type="password" id="key_zhipu" autocomplete="off"></div>
+    <div class="key-field"><label>Cohere</label><input type="password" id="key_cohere" autocomplete="off"></div>
+    <div class="key-field"><label>Hugging Face</label><input type="password" id="key_hf" autocomplete="off"></div>
+  </div>
+</details>
+
+<textarea id="prompt">Giám đốc kinh doanh được giao chỉ tiêu tăng trưởng doanh thu 25% và phải hoàn tất ký kết với ba đối tác chiến lược trước ngày 30/9. Hãy phản hồi theo phong cách cung cấp dữ liệu, mô tả.</textarea>
+
+<div class="providers" id="providerList">
+  <label><input type="checkbox" value="gemini" checked> Gemini</label>
+  <label><input type="checkbox" value="groq" checked> Groq</label>
+  <label><input type="checkbox" value="nvidia"> Nvidia</label>
+  <label><input type="checkbox" value="mistral"> Mistral</label>
+  <label><input type="checkbox" value="openrouter"> OpenRouter</label>
+  <label><input type="checkbox" value="zhipu"> Zhipu</label>
+  <label><input type="checkbox" value="cohere"> Cohere</label>
+  <label><input type="checkbox" value="hf"> HuggingFace</label>
+</div>
+
+<button id="runBtn">Chạy so sánh</button>
+
+<div class="results" id="results"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function callGemini(key, prompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+  const res = await fetch(url, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? JSON.stringify(data);
+}
+
+async function callGroq(key, prompt) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'llama-3.3-70b-versatile', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callNvidia(key, prompt) {
+  const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'meta/llama-3.1-70b-instruct', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callMistral(key, prompt) {
+  const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'mistral-small-latest', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callOpenRouter(key, prompt) {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'openai/gpt-4o-mini', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callZhipu(key, prompt) {
+  const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'glm-4-flash', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callCohere(key, prompt) {
+  const res = await fetch('https://api.cohere.com/v2/chat', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'command-r', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || res.status);
+  return data?.message?.content?.[0]?.text ?? JSON.stringify(data);
+}
+
+async function callHF(key, prompt) {
+  const res = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ inputs: prompt })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || res.status);
+  return Array.isArray(data) ? (data[0]?.generated_text ?? JSON.stringify(data)) : JSON.stringify(data);
+}
+
+const PROVIDERS = {
+  gemini:     { key: 'key_gemini',     fn: callGemini },
+  groq:       { key: 'key_groq',       fn: callGroq },
+  nvidia:     { key: 'key_nvidia',     fn: callNvidia },
+  mistral:    { key: 'key_mistral',    fn: callMistral },
+  openrouter: { key: 'key_openrouter', fn: callOpenRouter },
+  zhipu:      { key: 'key_zhipu',      fn: callZhipu },
+  cohere:     { key: 'key_cohere',     fn: callCohere },
+  hf:         { key: 'key_hf',         fn: callHF },
+};
+
+$('runBtn').addEventListener('click', async () => {
+  const prompt = $('prompt').value.trim();
+  const selected = [...document.querySelectorAll('#providerList input:checked')].map(i => i.value);
+  if (!selected.length) { alert('Chọn ít nhất 1 provider.'); return; }
+
+  $('runBtn').disabled = true;
+  const results = $('results');
+  results.innerHTML = '';
+
+  for (const p of selected) {
+    const { key: keyId, fn } = PROVIDERS[p];
+    const key = $(keyId).value.trim();
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.innerHTML = `<h3>${p}</h3><div class="text loading">Đang chạy…</div>`;
+    results.appendChild(card);
+
+    if (!key) {
+      card.querySelector('.text').className = 'text error';
+      card.querySelector('.text').textContent = 'Chưa nhập key cho provider này.';
+      continue;
+    }
+
+    fn(key, prompt)
+      .then(text => {
+        card.querySelector('.text').className = 'text';
+        card.querySelector('.text').textContent = text;
+      })
+      .catch(err => {
+        card.querySelector('.text').className = 'text error';
+        card.querySelector('.text').textContent = 'Lỗi (có thể do CORS hoặc key sai): ' + err.message;
+      });
+  }
+
+  $('runBtn').disabled = false;
+});
+</script>
+
+</body>
+</html>
