@@ -60,7 +60,11 @@
       <input type="password" id="key_sambanova" autocomplete="off">
       <input type="text" id="url_sambanova" placeholder="proxy URL (mặc định đã điền)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
     </div>
-    <div class="key-field"><label>5. Nvidia</label><input type="password" id="key_nvidia" autocomplete="off"></div>
+    <div class="key-field">
+      <label>5. Nvidia</label>
+      <input type="password" id="key_nvidia" autocomplete="off">
+      <input type="text" id="url_nvidia" placeholder="Proxy URL (bắt buộc — Nvidia chặn CORS)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
+    </div>
     <div class="key-field">
       <label style="color:#cbd5e1;">6. GitHub PAT</label>
       <input type="password" disabled placeholder="không dùng ở đây — quản lý code, không sinh văn bản" style="background:#f1f5f9;">
@@ -185,7 +189,7 @@ async function callGemini(key, prompt) {
 async function callGroq(key, prompt) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'llama-3.3-70b-versatile', messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'llama-3.3-70b-versatile', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -193,19 +197,30 @@ async function callGroq(key, prompt) {
 }
 
 async function callNvidia(key, prompt) {
-  const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'meta/llama-3.1-70b-instruct', messages:[{role:'user',content:prompt}] })
+  const proxyUrl = $('url_nvidia').value.trim().replace(/\/$/, '');
+  if (!proxyUrl) {
+    throw new Error('Nvidia chặn gọi trực tiếp từ trình duyệt (CORS). Cần điền Proxy URL ở ô bên dưới key.');
+  }
+  // Generic reverse-proxy pattern: proxy reads X-Target-Url and forwards
+  // method/body/Authorization as-is to that URL.
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+      'X-Target-Url': 'https://integrate.api.nvidia.com/v1/chat/completions',
+    },
+    body: JSON.stringify({ model:'meta/llama-3.1-70b-instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  if (!res.ok) throw new Error(data?.error?.message || data?.error || res.status);
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
 async function callMistral(key, prompt) {
   const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'mistral-small-latest', messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'mistral-small-latest', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -215,7 +230,7 @@ async function callMistral(key, prompt) {
 async function callOpenRouter(key, prompt) {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'openai/gpt-4o-mini', messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'openai/gpt-4o-mini', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -225,7 +240,7 @@ async function callOpenRouter(key, prompt) {
 async function callZhipu(key, prompt) {
   const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'glm-4-flash', messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'glm-4-flash', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -235,7 +250,7 @@ async function callZhipu(key, prompt) {
 async function callCohere(key, prompt) {
   const res = await fetch('https://api.cohere.com/v2/chat', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'command-r', messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'command-r', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.message || res.status);
@@ -243,13 +258,18 @@ async function callCohere(key, prompt) {
 }
 
 async function callSambaNova(key, prompt) {
-  const baseUrl = $('url_sambanova').value.trim().replace(/\/$/, '') || 'https://sambanova-proxy.nktg-org.workers.dev';
-  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'Meta-Llama-3.1-8B-Instruct', messages:[{role:'user',content:prompt}] })
+  const proxyUrl = $('url_sambanova').value.trim().replace(/\/$/, '') || 'https://sambanova-proxy.nktg-org.workers.dev';
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+      'X-Target-Url': 'https://api.sambanova.ai/v1/chat/completions',
+    },
+    body: JSON.stringify({ model:'Meta-Llama-3.1-8B-Instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  if (!res.ok) throw new Error(data?.error?.message || data?.error || res.status);
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
@@ -274,19 +294,25 @@ async function fetchHFModelCatalog(key) {
   return [...prioritized, ...rest].slice(0, 20); // cap probing attempts
 }
 
-async function tryHFModel(key, model, prompt) {
-  const res = await fetch('https://router.huggingface.co/v1/chat/completions', {
-    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature: 0.7 })
-  });
-  const data = await res.json();
-  if (!res.ok) {
+async function tryHFModel(key, model, prompt, retries = 2) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const res = await fetch('https://router.huggingface.co/v1/chat/completions', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+      body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature: 0.7, max_tokens: 1200 })
+    });
+    const data = await res.json();
+    if (res.ok) return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+
     const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    const isTransient = res.status === 503 || res.status === 429;
+    if (isTransient && attempt < retries) {
+      await new Promise(r => setTimeout(r, 800)); // brief pause, then retry same model
+      continue;
+    }
     const err = new Error(msg);
-    err.retryable = res.status === 400 || res.status === 404 || res.status === 503;
+    err.retryable = res.status === 400 || res.status === 404 || isTransient;
     throw err;
   }
-  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
 async function callHF(key, prompt) {
