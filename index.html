@@ -53,7 +53,11 @@
       <input type="password" id="key_gemini" autocomplete="off">
       <div id="model_gemini" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
-    <div class="key-field"><label>2. Zhipu (GLM)</label><input type="password" id="key_zhipu" autocomplete="off"></div>
+    <div class="key-field">
+      <label>2. Zhipu (GLM)</label>
+      <input type="password" id="key_zhipu" autocomplete="off">
+      <div id="model_zhipu" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
+    </div>
     <div class="key-field"><label>3. Groq</label><input type="password" id="key_groq" autocomplete="off"></div>
     <div class="key-field">
       <label>4. SambaNova</label>
@@ -321,14 +325,52 @@ async function callOpenRouter(key, prompt) {
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
-async function callZhipu(key, prompt) {
+const ZHIPU_CANDIDATES = ['glm-4.5-flash', 'glm-4-flash']; // both documented as 永久免费 (permanently free)
+let cachedZhipuModel = localStorage.getItem('nktg_zhipu_model') || null;
+
+async function tryZhipuModel(key, model, prompt) {
   const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'glm-4-flash', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  const data = await safeJson(res);
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = res.status === 400 || res.status === 404;
+    throw err;
+  }
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callZhipu(key, prompt) {
+  const statusField = $('model_zhipu');
+  if (cachedZhipuModel) {
+    try {
+      const text = await tryZhipuModel(key, cachedZhipuModel, prompt);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + cachedZhipuModel + ' (đã lưu)';
+      return text;
+    } catch (e) {
+      cachedZhipuModel = null;
+      localStorage.removeItem('nktg_zhipu_model');
+    }
+  }
+  let lastErr = null;
+  for (const model of ZHIPU_CANDIDATES) {
+    if (statusField) statusField.textContent = `đang thử ${model}...`;
+    try {
+      const text = await tryZhipuModel(key, model, prompt);
+      cachedZhipuModel = model;
+      localStorage.setItem('nktg_zhipu_model', model);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retryable) throw e;
+    }
+  }
+  if (statusField) statusField.textContent = 'không tìm được model nào khả dụng';
+  throw lastErr || new Error('Không có model Zhipu nào khả dụng.');
 }
 
 async function callCohere(key, prompt) {
