@@ -59,6 +59,7 @@
       <label>4. SambaNova</label>
       <input type="password" id="key_sambanova" autocomplete="off">
       <input type="text" id="url_sambanova" placeholder="proxy URL (mặc định đã điền)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
+      <div id="model_sambanova" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
     <div class="key-field">
       <label>5. Nvidia</label>
@@ -129,6 +130,9 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   if (localStorage.getItem('nktg_hf_model')) {
     $('model_hf').textContent = 'Model đã lưu: ' + localStorage.getItem('nktg_hf_model');
+  }
+  if (localStorage.getItem('nktg_sambanova_model') && $('model_sambanova')) {
+    $('model_sambanova').textContent = 'Model đã lưu: ' + localStorage.getItem('nktg_sambanova_model');
   }
 });
 
@@ -268,8 +272,16 @@ async function callCohere(key, prompt) {
   return data?.message?.content?.[0]?.text ?? JSON.stringify(data);
 }
 
-async function callSambaNova(key, prompt) {
-  const proxyUrl = $('url_sambanova').value.trim().replace(/\/$/, '') || 'https://sambanova-proxy.nktg-org.workers.dev';
+const SAMBANOVA_CANDIDATES = [
+  'Meta-Llama-3.3-70B-Instruct', // SambaNova's own "most battle-tested" model
+  'DeepSeek-V3.1',
+  'Meta-Llama-3.1-405B-Instruct',
+  'Llama-4-Maverick-17B-128E-Instruct',
+];
+
+let cachedSambaNovaModel = localStorage.getItem('nktg_sambanova_model') || null;
+
+async function trySambaNovaModel(proxyUrl, key, model, prompt) {
   const res = await fetch(proxyUrl, {
     method: 'POST',
     headers: {
@@ -277,11 +289,49 @@ async function callSambaNova(key, prompt) {
       'Authorization': `Bearer ${key}`,
       'X-Target-Url': 'https://api.sambanova.ai/v1/chat/completions',
     },
-    body: JSON.stringify({ model:'Meta-Llama-3.1-405B-Instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
   });
   const data = await safeJson(res);
-  if (!res.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = res.status === 400 || res.status === 404 || res.status === 410;
+    throw err;
+  }
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callSambaNova(key, prompt) {
+  const proxyUrl = $('url_sambanova').value.trim().replace(/\/$/, '') || 'https://sambanova-proxy.nktg-org.workers.dev';
+  const statusField = $('model_sambanova');
+
+  if (cachedSambaNovaModel) {
+    try {
+      const text = await trySambaNovaModel(proxyUrl, key, cachedSambaNovaModel, prompt);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + cachedSambaNovaModel + ' (đã lưu)';
+      return text;
+    } catch (e) {
+      cachedSambaNovaModel = null;
+      localStorage.removeItem('nktg_sambanova_model');
+    }
+  }
+
+  let lastErr = null;
+  for (const model of SAMBANOVA_CANDIDATES) {
+    if (statusField) statusField.textContent = `đang thử ${model}...`;
+    try {
+      const text = await trySambaNovaModel(proxyUrl, key, model, prompt);
+      cachedSambaNovaModel = model;
+      localStorage.setItem('nktg_sambanova_model', model);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retryable) throw e;
+    }
+  }
+  if (statusField) statusField.textContent = 'không tìm được model nào khả dụng';
+  throw lastErr || new Error('Không có model SambaNova nào khả dụng.');
 }
 
 // Instead of guessing model names (HF's supported list changes constantly),
