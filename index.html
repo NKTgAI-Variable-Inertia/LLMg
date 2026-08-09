@@ -247,13 +247,13 @@ async function callSambaNova(key, prompt) {
 }
 
 async function callHF(key, prompt) {
-  const res = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3', {
+  const res = await fetch('https://router.huggingface.co/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ inputs: prompt })
+    body: JSON.stringify({ model:'meta-llama/Llama-3.1-8B-Instruct', messages:[{role:'user',content:prompt}] })
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || res.status);
-  return Array.isArray(data) ? (data[0]?.generated_text ?? JSON.stringify(data)) : JSON.stringify(data);
+  if (!res.ok) throw new Error(data?.error?.message || data?.error || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
 const PROVIDERS = {
