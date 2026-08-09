@@ -72,8 +72,10 @@
     </div>
     <div class="key-field"><label>7. Cohere</label><input type="password" id="key_cohere" autocomplete="off"></div>
     <div class="key-field">
-      <label style="color:#cbd5e1;">8. Cloudflare</label>
-      <input type="password" disabled placeholder="không dùng ở đây — quản lý hạ tầng, không sinh văn bản" style="background:#f1f5f9;">
+      <label>8. Cloudflare (Workers AI)</label>
+      <input type="password" id="key_cloudflare" autocomplete="off" placeholder="API Token">
+      <input type="text" id="account_cloudflare" placeholder="Account ID" style="margin-top:4px;">
+      <div id="model_cloudflare" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
     <div class="key-field"><label>9. OpenRouter</label><input type="password" id="key_openrouter" autocomplete="off"></div>
     <div class="key-field"><label>10. Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
@@ -102,6 +104,7 @@
   <label><input type="checkbox" value="sambanova"> 4. SambaNova</label>
   <label><input type="checkbox" value="nvidia"> 5. Nvidia</label>
   <label><input type="checkbox" value="cohere"> 7. Cohere</label>
+  <label><input type="checkbox" value="cloudflare"> 8. Cloudflare</label>
   <label><input type="checkbox" value="openrouter"> 9. OpenRouter</label>
   <label><input type="checkbox" value="mistral"> 10. Mistral</label>
   <label><input type="checkbox" value="hf"> 11. HuggingFace</label>
@@ -230,6 +233,66 @@ async function callNvidia(key, prompt) {
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+const CLOUDFLARE_CANDIDATES = [
+  '@cf/meta/llama-3.1-8b-instruct',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/mistral/mistral-7b-instruct-v0.2',
+  '@cf/qwen/qwen1.5-14b-chat-awq',
+];
+
+let cachedCloudflareModel = localStorage.getItem('nktg_cloudflare_model') || null;
+
+async function tryCloudflareModel(key, accountId, model, prompt) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
+  });
+  const data = await safeJson(res);
+  if (!res.ok || data?.success === false) {
+    const msg = data?.errors?.[0]?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = res.status === 400 || res.status === 404;
+    throw err;
+  }
+  return data?.result?.response ?? JSON.stringify(data);
+}
+
+async function callCloudflare(key, prompt) {
+  const accountId = $('account_cloudflare').value.trim();
+  const statusField = $('model_cloudflare');
+  if (!accountId) throw new Error('Cần nhập Account ID.');
+
+  if (cachedCloudflareModel) {
+    try {
+      const text = await tryCloudflareModel(key, accountId, cachedCloudflareModel, prompt);
+      statusField.textContent = 'Đang dùng: ' + cachedCloudflareModel + ' (đã lưu)';
+      return text;
+    } catch (e) {
+      cachedCloudflareModel = null;
+      localStorage.removeItem('nktg_cloudflare_model');
+    }
+  }
+
+  let lastErr = null;
+  for (const model of CLOUDFLARE_CANDIDATES) {
+    statusField.textContent = `đang thử ${model}...`;
+    try {
+      const text = await tryCloudflareModel(key, accountId, model, prompt);
+      cachedCloudflareModel = model;
+      localStorage.setItem('nktg_cloudflare_model', model);
+      statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retryable) throw e;
+    }
+  }
+  statusField.textContent = 'không tìm được model nào khả dụng';
+  throw lastErr || new Error('Không có model Workers AI nào khả dụng.');
 }
 
 async function callMistral(key, prompt) {
@@ -428,6 +491,7 @@ const PROVIDERS = {
   sambanova:  { key: 'key_sambanova',  fn: callSambaNova },
   nvidia:     { key: 'key_nvidia',     fn: callNvidia },
   cohere:     { key: 'key_cohere',     fn: callCohere },
+  cloudflare: { key: 'key_cloudflare', fn: callCloudflare },
   openrouter: { key: 'key_openrouter', fn: callOpenRouter },
   mistral:    { key: 'key_mistral',    fn: callMistral },
   hf:         { key: 'key_hf',         fn: callHF },
