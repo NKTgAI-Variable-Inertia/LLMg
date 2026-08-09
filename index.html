@@ -71,8 +71,10 @@
       <input type="text" id="url_nvidia" placeholder="Proxy URL (bắt buộc — Nvidia chặn CORS)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
     </div>
     <div class="key-field">
-      <label style="color:#cbd5e1;">6. GitHub PAT</label>
-      <input type="password" disabled placeholder="không dùng ở đây — quản lý code, không sinh văn bản" style="background:#f1f5f9;">
+      <label>6. GitHub Models</label>
+      <input type="password" id="key_github" autocomplete="off" placeholder="PAT (scope: models:read)">
+      <input type="text" id="proxy_github" placeholder="Proxy URL (chỉ điền nếu bị CORS)" style="margin-top:4px;">
+      <div id="model_github" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
     <div class="key-field"><label>7. Cohere</label><input type="password" id="key_cohere" autocomplete="off"></div>
     <div class="key-field">
@@ -108,6 +110,7 @@
   <label><input type="checkbox" value="groq" checked> 3. Groq</label>
   <label><input type="checkbox" value="sambanova"> 4. SambaNova</label>
   <label><input type="checkbox" value="nvidia"> 5. Nvidia</label>
+  <label><input type="checkbox" value="github"> 6. GitHub</label>
   <label><input type="checkbox" value="cohere"> 7. Cohere</label>
   <label><input type="checkbox" value="cloudflare"> 8. Cloudflare</label>
   <label><input type="checkbox" value="openrouter"> 9. OpenRouter</label>
@@ -373,6 +376,71 @@ async function callZhipu(key, prompt) {
   throw lastErr || new Error('Không có model Zhipu nào khả dụng.');
 }
 
+const GITHUB_MODELS_CANDIDATES = [
+  'openai/gpt-4o-mini',
+  'meta/meta-llama-3.1-8b-instruct',
+  'microsoft/phi-3.5-mini-instruct',
+  'deepseek/deepseek-r1',
+];
+let cachedGitHubModel = localStorage.getItem('nktg_github_model') || null;
+
+async function tryGitHubModel(key, proxyUrl, model, prompt) {
+  const targetUrl = 'https://models.github.ai/inference/chat/completions';
+  const fetchUrl = proxyUrl || targetUrl;
+  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` };
+  if (proxyUrl) headers['X-Target-Url'] = targetUrl;
+
+  const res = await fetch(fetchUrl, {
+    method: 'POST', headers,
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = res.status === 400 || res.status === 404 || res.status === 429;
+    throw err;
+  }
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
+async function callGitHub(key, prompt) {
+  const proxyUrl = $('proxy_github').value.trim().replace(/\/$/, '');
+  const statusField = $('model_github');
+
+  if (cachedGitHubModel) {
+    try {
+      const text = await tryGitHubModel(key, proxyUrl, cachedGitHubModel, prompt);
+      statusField.textContent = 'Đang dùng: ' + cachedGitHubModel + ' (đã lưu)';
+      return text;
+    } catch (e) {
+      cachedGitHubModel = null;
+      localStorage.removeItem('nktg_github_model');
+    }
+  }
+
+  let lastErr = null;
+  for (const model of GITHUB_MODELS_CANDIDATES) {
+    statusField.textContent = `đang thử ${model}...`;
+    try {
+      const text = await tryGitHubModel(key, proxyUrl, model, prompt);
+      cachedGitHubModel = model;
+      localStorage.setItem('nktg_github_model', model);
+      statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!proxyUrl && e.message?.toLowerCase().includes('failed to fetch')) {
+        statusField.textContent = 'Bị chặn CORS — điền Proxy URL ở ô bên dưới key.';
+        throw new Error('Failed to fetch (CORS) — điền Proxy URL (VD: https://sambanova-proxy.nktg-org.workers.dev) rồi thử lại.');
+      }
+      if (!e.retryable) throw e;
+    }
+  }
+  statusField.textContent = 'không tìm được model nào khả dụng';
+  throw lastErr || new Error('Không có model GitHub nào khả dụng.');
+}
+
 async function callCohere(key, prompt) {
   const res = await fetch('https://api.cohere.com/v2/chat', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
@@ -538,6 +606,7 @@ const PROVIDERS = {
   groq:       { key: 'key_groq',       fn: callGroq },
   sambanova:  { key: 'key_sambanova',  fn: callSambaNova },
   nvidia:     { key: 'key_nvidia',     fn: callNvidia },
+  github:     { key: 'key_github',     fn: callGitHub },
   cohere:     { key: 'key_cohere',     fn: callCohere },
   cloudflare: { key: 'key_cloudflare', fn: callCloudflare },
   openrouter: { key: 'key_openrouter', fn: callOpenRouter },
