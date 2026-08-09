@@ -49,31 +49,53 @@
   <summary>🔑 API Keys (chỉ lưu trong phiên trình duyệt này)</summary>
   <div class="keys-grid">
     <div class="key-field">
-      <label>Gemini</label>
+      <label>1. Gemini</label>
       <input type="password" id="key_gemini" autocomplete="off">
       <div id="model_gemini" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
-    <div class="key-field"><label>Groq</label><input type="password" id="key_groq" autocomplete="off"></div>
-    <div class="key-field"><label>Nvidia</label><input type="password" id="key_nvidia" autocomplete="off"></div>
-    <div class="key-field"><label>Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
-    <div class="key-field"><label>OpenRouter</label><input type="password" id="key_openrouter" autocomplete="off"></div>
-    <div class="key-field"><label>Zhipu (GLM)</label><input type="password" id="key_zhipu" autocomplete="off"></div>
-    <div class="key-field"><label>Cohere</label><input type="password" id="key_cohere" autocomplete="off"></div>
-    <div class="key-field"><label>Hugging Face</label><input type="password" id="key_hf" autocomplete="off"></div>
+    <div class="key-field"><label>2. Zhipu (GLM)</label><input type="password" id="key_zhipu" autocomplete="off"></div>
+    <div class="key-field"><label>3. Groq</label><input type="password" id="key_groq" autocomplete="off"></div>
+    <div class="key-field">
+      <label>4. SambaNova</label>
+      <input type="password" id="key_sambanova" autocomplete="off">
+      <input type="text" id="url_sambanova" placeholder="proxy URL (mặc định đã điền)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
+    </div>
+    <div class="key-field"><label>5. Nvidia</label><input type="password" id="key_nvidia" autocomplete="off"></div>
+    <div class="key-field">
+      <label style="color:#cbd5e1;">6. GitHub PAT</label>
+      <input type="password" disabled placeholder="không dùng ở đây — quản lý code, không sinh văn bản" style="background:#f1f5f9;">
+    </div>
+    <div class="key-field"><label>7. Cohere</label><input type="password" id="key_cohere" autocomplete="off"></div>
+    <div class="key-field">
+      <label style="color:#cbd5e1;">8. Cloudflare</label>
+      <input type="password" disabled placeholder="không dùng ở đây — quản lý hạ tầng, không sinh văn bản" style="background:#f1f5f9;">
+    </div>
+    <div class="key-field"><label>9. OpenRouter</label><input type="password" id="key_openrouter" autocomplete="off"></div>
+    <div class="key-field"><label>10. Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
+    <div class="key-field"><label>11. Hugging Face</label><input type="password" id="key_hf" autocomplete="off"></div>
+    <div class="key-field">
+      <label style="color:#cbd5e1;">12. Ollama</label>
+      <input type="password" disabled placeholder="chưa rõ chuẩn API — báo lại nếu có endpoint cụ thể" style="background:#f1f5f9;">
+    </div>
+    <div class="key-field">
+      <label style="color:#cbd5e1;">13. OpenCode</label>
+      <input type="password" disabled placeholder="chưa rõ chuẩn API — báo lại nếu có endpoint cụ thể" style="background:#f1f5f9;">
+    </div>
   </div>
 </details>
 
 <textarea id="prompt">Giám đốc kinh doanh được giao chỉ tiêu tăng trưởng doanh thu 25% và phải hoàn tất ký kết với ba đối tác chiến lược trước ngày 30/9. Hãy phản hồi theo phong cách cung cấp dữ liệu, mô tả.</textarea>
 
 <div class="providers" id="providerList">
-  <label><input type="checkbox" value="gemini" checked> Gemini</label>
-  <label><input type="checkbox" value="groq" checked> Groq</label>
-  <label><input type="checkbox" value="nvidia"> Nvidia</label>
-  <label><input type="checkbox" value="mistral"> Mistral</label>
-  <label><input type="checkbox" value="openrouter"> OpenRouter</label>
-  <label><input type="checkbox" value="zhipu"> Zhipu</label>
-  <label><input type="checkbox" value="cohere"> Cohere</label>
-  <label><input type="checkbox" value="hf"> HuggingFace</label>
+  <label><input type="checkbox" value="gemini" checked> 1. Gemini</label>
+  <label><input type="checkbox" value="zhipu"> 2. Zhipu</label>
+  <label><input type="checkbox" value="groq" checked> 3. Groq</label>
+  <label><input type="checkbox" value="sambanova"> 4. SambaNova</label>
+  <label><input type="checkbox" value="nvidia"> 5. Nvidia</label>
+  <label><input type="checkbox" value="cohere"> 7. Cohere</label>
+  <label><input type="checkbox" value="openrouter"> 9. OpenRouter</label>
+  <label><input type="checkbox" value="mistral"> 10. Mistral</label>
+  <label><input type="checkbox" value="hf"> 11. HuggingFace</label>
 </div>
 
 <button id="runBtn">Chạy so sánh</button>
@@ -213,6 +235,17 @@ async function callCohere(key, prompt) {
   return data?.message?.content?.[0]?.text ?? JSON.stringify(data);
 }
 
+async function callSambaNova(key, prompt) {
+  const baseUrl = $('url_sambanova').value.trim().replace(/\/$/, '') || 'https://sambanova-proxy.nktg-org.workers.dev';
+  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body: JSON.stringify({ model:'Meta-Llama-3.1-8B-Instruct', messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+}
+
 async function callHF(key, prompt) {
   const res = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
@@ -225,12 +258,13 @@ async function callHF(key, prompt) {
 
 const PROVIDERS = {
   gemini:     { key: 'key_gemini',     fn: callGemini },
-  groq:       { key: 'key_groq',       fn: callGroq },
-  nvidia:     { key: 'key_nvidia',     fn: callNvidia },
-  mistral:    { key: 'key_mistral',    fn: callMistral },
-  openrouter: { key: 'key_openrouter', fn: callOpenRouter },
   zhipu:      { key: 'key_zhipu',      fn: callZhipu },
+  groq:       { key: 'key_groq',       fn: callGroq },
+  sambanova:  { key: 'key_sambanova',  fn: callSambaNova },
+  nvidia:     { key: 'key_nvidia',     fn: callNvidia },
   cohere:     { key: 'key_cohere',     fn: callCohere },
+  openrouter: { key: 'key_openrouter', fn: callOpenRouter },
+  mistral:    { key: 'key_mistral',    fn: callMistral },
   hf:         { key: 'key_hf',         fn: callHF },
 };
 
