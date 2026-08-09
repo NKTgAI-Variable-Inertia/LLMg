@@ -48,8 +48,11 @@
 <details open>
   <summary>🔑 API Keys (chỉ lưu trong phiên trình duyệt này)</summary>
   <div class="keys-grid">
-    <div class="key-field"><label>Gemini</label><input type="password" id="key_gemini" autocomplete="off"></div>
-    <div class="key-field"><label>Gemini Model (tự dò, để trống)</label><input type="text" id="model_gemini" placeholder="tự động dò model free..." readonly style="color:#64748b;background:#f1f5f9;"></div>
+    <div class="key-field">
+      <label>Gemini</label>
+      <input type="password" id="key_gemini" autocomplete="off">
+      <div id="model_gemini" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
+    </div>
     <div class="key-field"><label>Groq</label><input type="password" id="key_groq" autocomplete="off"></div>
     <div class="key-field"><label>Nvidia</label><input type="password" id="key_nvidia" autocomplete="off"></div>
     <div class="key-field"><label>Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
@@ -79,6 +82,11 @@
 
 <script>
 const $ = id => document.getElementById(id);
+if (localStorage.getItem('nktg_gemini_model')) {
+  window.addEventListener('DOMContentLoaded', () => {
+    $('model_gemini').textContent = 'Model đã lưu: ' + localStorage.getItem('nktg_gemini_model');
+  });
+}
 
 // Candidate Gemini models to try, roughly ordered from most likely
 // to have a working free quota to least. Google renames/retires models
@@ -93,7 +101,7 @@ const GEMINI_CANDIDATES = [
   'gemini-1.5-flash-8b',
 ];
 
-let cachedGeminiModel = null; // remembered for this browser session only
+let cachedGeminiModel = localStorage.getItem('nktg_gemini_model') || null; // remembered across page reloads
 
 async function tryGeminiModel(key, model, prompt) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
@@ -114,24 +122,26 @@ async function tryGeminiModel(key, model, prompt) {
 async function callGemini(key, prompt) {
   const statusField = $('model_gemini');
 
-  // Reuse the model that already worked this session.
+  // Reuse the model that already worked (this session or a previous page load).
   if (cachedGeminiModel) {
     try {
       const text = await tryGeminiModel(key, cachedGeminiModel, prompt);
-      statusField.value = cachedGeminiModel + ' ✓';
+      statusField.textContent = 'Đang dùng: ' + cachedGeminiModel + ' (đã lưu, không dò lại)';
       return text;
     } catch (e) {
-      cachedGeminiModel = null; // fell through — probe again below
+      cachedGeminiModel = null;
+      localStorage.removeItem('nktg_gemini_model'); // stopped working — probe again below
     }
   }
 
   let lastErr = null;
   for (const model of GEMINI_CANDIDATES) {
-    statusField.value = `đang thử ${model}...`;
+    statusField.textContent = `đang thử ${model}...`;
     try {
       const text = await tryGeminiModel(key, model, prompt);
       cachedGeminiModel = model;
-      statusField.value = model + ' ✓ (free, hoạt động)';
+      localStorage.setItem('nktg_gemini_model', model);
+      statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
       return text;
     } catch (e) {
       lastErr = e;
@@ -139,7 +149,7 @@ async function callGemini(key, prompt) {
       // otherwise try the next candidate
     }
   }
-  statusField.value = 'không tìm được model free nào';
+  statusField.textContent = 'không tìm được model free nào';
   throw lastErr || new Error('Không có model Gemini nào khả dụng với key này.');
 }
 
