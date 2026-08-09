@@ -112,6 +112,17 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+// Some APIs return plain text (not JSON) on errors like 410/502/etc.
+// This avoids "Unexpected token ... is not valid JSON" masking the real error.
+async function safeJson(res) {
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { error: raw.slice(0, 300) || `HTTP ${res.status}` };
+  }
+}
 window.addEventListener('DOMContentLoaded', () => {
   if (localStorage.getItem('nktg_gemini_model')) {
     $('model_gemini').textContent = 'Model đã lưu: ' + localStorage.getItem('nktg_gemini_model');
@@ -212,8 +223,8 @@ async function callNvidia(key, prompt) {
     },
     body: JSON.stringify({ model:'meta/llama-3.1-70b-instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || data?.error || res.status);
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
@@ -266,10 +277,10 @@ async function callSambaNova(key, prompt) {
       'Authorization': `Bearer ${key}`,
       'X-Target-Url': 'https://api.sambanova.ai/v1/chat/completions',
     },
-    body: JSON.stringify({ model:'Meta-Llama-3.1-8B-Instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model:'Meta-Llama-3.1-405B-Instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || data?.error || res.status);
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
