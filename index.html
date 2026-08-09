@@ -75,6 +75,7 @@
       <label>8. Cloudflare (Workers AI)</label>
       <input type="password" id="key_cloudflare" autocomplete="off" placeholder="API Token">
       <input type="text" id="account_cloudflare" placeholder="Account ID" style="margin-top:4px;">
+      <input type="text" id="proxy_cloudflare" placeholder="Proxy URL (bắt buộc — CORS)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
       <div id="model_cloudflare" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
     <div class="key-field"><label>9. OpenRouter</label><input type="password" id="key_openrouter" autocomplete="off"></div>
@@ -244,11 +245,15 @@ const CLOUDFLARE_CANDIDATES = [
 
 let cachedCloudflareModel = localStorage.getItem('nktg_cloudflare_model') || null;
 
-async function tryCloudflareModel(key, accountId, model, prompt) {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-  const res = await fetch(url, {
+async function tryCloudflareModel(proxyUrl, key, accountId, model, prompt) {
+  const targetUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+  const res = await fetch(proxyUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+      'X-Target-Url': targetUrl,
+    },
     body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
   });
   const data = await safeJson(res);
@@ -263,12 +268,13 @@ async function tryCloudflareModel(key, accountId, model, prompt) {
 
 async function callCloudflare(key, prompt) {
   const accountId = $('account_cloudflare').value.trim();
+  const proxyUrl = $('proxy_cloudflare').value.trim().replace(/\/$/, '') || 'https://sambanova-proxy.nktg-org.workers.dev';
   const statusField = $('model_cloudflare');
   if (!accountId) throw new Error('Cần nhập Account ID.');
 
   if (cachedCloudflareModel) {
     try {
-      const text = await tryCloudflareModel(key, accountId, cachedCloudflareModel, prompt);
+      const text = await tryCloudflareModel(proxyUrl, key, accountId, cachedCloudflareModel, prompt);
       statusField.textContent = 'Đang dùng: ' + cachedCloudflareModel + ' (đã lưu)';
       return text;
     } catch (e) {
@@ -281,7 +287,7 @@ async function callCloudflare(key, prompt) {
   for (const model of CLOUDFLARE_CANDIDATES) {
     statusField.textContent = `đang thử ${model}...`;
     try {
-      const text = await tryCloudflareModel(key, accountId, model, prompt);
+      const text = await tryCloudflareModel(proxyUrl, key, accountId, model, prompt);
       cachedCloudflareModel = model;
       localStorage.setItem('nktg_cloudflare_model', model);
       statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
