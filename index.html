@@ -638,23 +638,30 @@ async function fetchOpenCodeFreeModels(key, proxyUrl) {
     .filter(Boolean);
 }
 
-async function tryOpenCodeModel(key, proxyUrl, model, prompt) {
-  const targetUrl = 'https://opencode.ai/zen/v1/chat/completions';
-  const fetchUrl = proxyUrl || targetUrl;
-  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` };
-  if (proxyUrl) headers['X-Target-Url'] = targetUrl;
-  const res = await fetch(fetchUrl, {
-    method: 'POST', headers,
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
-  });
-  const data = await safeJson(res);
-  if (!res.ok) {
+async function tryOpenCodeModel(key, proxyUrl, model, prompt, retries = 2) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const targetUrl = 'https://opencode.ai/zen/v1/chat/completions';
+    const fetchUrl = proxyUrl || targetUrl;
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` };
+    if (proxyUrl) headers['X-Target-Url'] = targetUrl;
+    const res = await fetch(fetchUrl, {
+      method: 'POST', headers,
+      body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    });
+    const data = await safeJson(res);
+    if (res.ok) return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+
     const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    const isRateLimited = res.status === 429;
+    if (isRateLimited && attempt < retries) {
+      await new Promise(r => setTimeout(r, 1500)); // brief pause, retry same model once
+      continue;
+    }
     const err = new Error(msg);
-    err.retryable = res.status === 400 || res.status === 404;
+    // rate-limited (even after retry) or model gone/renamed — try the NEXT free model
+    err.retryable = res.status === 400 || res.status === 404 || isRateLimited;
     throw err;
   }
-  return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
 async function callOpenCode(key, prompt) {
