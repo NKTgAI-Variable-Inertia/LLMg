@@ -74,7 +74,11 @@
       <label style="color:#cbd5e1;">6. GitHub Models</label>
       <input type="password" disabled placeholder="Đã bị GitHub khai tử vĩnh viễn từ 30/7/2026 — không còn API" style="background:#f1f5f9;">
     </div>
-    <div class="key-field"><label>7. Cohere</label><input type="password" id="key_cohere" autocomplete="off"></div>
+    <div class="key-field">
+      <label>7. Cohere</label>
+      <input type="password" id="key_cohere" autocomplete="off">
+      <div id="model_cohere" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
+    </div>
     <div class="key-field">
       <label>8. Cloudflare (Workers AI)</label>
       <input type="password" id="key_cloudflare" autocomplete="off" placeholder="API Token">
@@ -444,14 +448,52 @@ async function callGitHub(key, prompt) {
   throw lastErr || new Error('Không có model GitHub nào khả dụng.');
 }
 
-async function callCohere(key, prompt) {
+const COHERE_CANDIDATES = ['command-r7b-12-2024', 'command-a-03-2025', 'command-r-08-2024', 'command-r-plus-08-2024'];
+let cachedCohereModel = localStorage.getItem('nktg_cohere_model') || null;
+
+async function tryCohereModel(key, model, prompt) {
   const res = await fetch('https://api.cohere.com/v2/chat', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'command-r', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.message || res.status);
+  const data = await safeJson(res);
+  if (!res.ok) {
+    const msg = data?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = res.status === 400 || res.status === 404;
+    throw err;
+  }
   return data?.message?.content?.[0]?.text ?? JSON.stringify(data);
+}
+
+async function callCohere(key, prompt) {
+  const statusField = $('model_cohere');
+  if (cachedCohereModel) {
+    try {
+      const text = await tryCohereModel(key, cachedCohereModel, prompt);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + cachedCohereModel + ' (đã lưu)';
+      return text;
+    } catch (e) {
+      cachedCohereModel = null;
+      localStorage.removeItem('nktg_cohere_model');
+    }
+  }
+  let lastErr = null;
+  for (const model of COHERE_CANDIDATES) {
+    if (statusField) statusField.textContent = `đang thử ${model}...`;
+    try {
+      const text = await tryCohereModel(key, model, prompt);
+      cachedCohereModel = model;
+      localStorage.setItem('nktg_cohere_model', model);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + model + ' (đã lưu cho lần sau)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retryable) throw e;
+    }
+  }
+  if (statusField) statusField.textContent = 'không tìm được model nào khả dụng';
+  throw lastErr || new Error('Không có model Cohere nào khả dụng.');
 }
 
 const SAMBANOVA_CANDIDATES = [
