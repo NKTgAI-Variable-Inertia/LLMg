@@ -309,7 +309,7 @@ async function callGemini(key, prompt) {
 async function callGroq(key, prompt) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'llama-3.3-70b-versatile', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model:'llama-3.3-70b-versatile', messages:[{role:'user',content:prompt}] })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -330,7 +330,7 @@ async function callNvidia(key, prompt) {
       'Authorization': `Bearer ${key}`,
       'X-Target-Url': 'https://integrate.api.nvidia.com/v1/chat/completions',
     },
-    body: JSON.stringify({ model:'meta/llama-3.1-70b-instruct', messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model:'meta/llama-3.1-70b-instruct', messages:[{role:'user',content:prompt}] }),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
@@ -405,7 +405,7 @@ async function callCloudflare(key, prompt) {
 async function callMistral(key, prompt) {
   const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'mistral-small-latest', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model:'mistral-small-latest', messages:[{role:'user',content:prompt}] })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -415,7 +415,7 @@ async function callMistral(key, prompt) {
 async function callOpenRouter(key, prompt) {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'openai/gpt-4o-mini', messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model:'openai/gpt-4o-mini', messages:[{role:'user',content:prompt}] })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || res.status);
@@ -428,7 +428,7 @@ let cachedZhipuModel = localStorage.getItem('nktg_zhipu_model') || null;
 async function tryZhipuModel(key, model, prompt) {
   const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] })
   });
   const data = await safeJson(res);
   if (!res.ok) {
@@ -486,7 +486,7 @@ async function tryGitHubModel(key, proxyUrl, model, prompt) {
 
   const res = await fetch(fetchUrl, {
     method: 'POST', headers,
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] }),
   });
   const data = await safeJson(res);
   if (!res.ok) {
@@ -541,7 +541,7 @@ let cachedCohereModel = localStorage.getItem('nktg_cohere_model') || null;
 async function tryCohereModel(key, model, prompt) {
   const res = await fetch('https://api.cohere.com/v2/chat', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 })
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] })
   });
   const data = await safeJson(res);
   if (!res.ok) {
@@ -600,7 +600,7 @@ async function trySambaNovaModel(proxyUrl, key, model, prompt) {
       'Authorization': `Bearer ${key}`,
       'X-Target-Url': 'https://api.sambanova.ai/v1/chat/completions',
     },
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] }),
   });
   const data = await safeJson(res);
   if (!res.ok) {
@@ -670,7 +670,7 @@ async function tryHFModel(key, model, prompt, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     const res = await fetch('https://router.huggingface.co/v1/chat/completions', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-      body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature: 0.7, max_tokens: 1200 })
+      body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature: 0.7 })
     });
     const data = await res.json();
     if (res.ok) return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
@@ -699,7 +699,7 @@ async function tryOllamaModel(key, proxyUrl, model, prompt) {
   if (proxyUrl) headers['X-Target-Url'] = targetUrl;
   const res = await fetch(fetchUrl, {
     method: 'POST', headers,
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] }),
   });
   const data = await safeJson(res);
   if (!res.ok) {
@@ -774,7 +774,7 @@ async function tryOpenCodeModel(key, proxyUrl, model, prompt) {
   if (proxyUrl) headers['X-Target-Url'] = targetUrl;
   const res = await fetch(fetchUrl, {
     method: 'POST', headers,
-    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] }),
   });
   const data = await safeJson(res);
   if (res.ok) return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
