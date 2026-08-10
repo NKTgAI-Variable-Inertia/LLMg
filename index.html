@@ -416,14 +416,22 @@ async function callMistral(key, prompt) {
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
-// Only :free-suffixed models — guarantees $0 cost regardless of account balance.
-const OPENROUTER_CANDIDATES = [
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'deepseek/deepseek-chat:free',
-  'qwen/qwen3-coder:free',
-  'google/gemma-3-27b-it:free',
-];
+// Static ":free" lists go stale fast (OpenRouter rotates which models are
+// free constantly). Fetch the LIVE list instead, filter for guaranteed-$0
+// models (id ends with ":free"), and try those.
 let cachedOpenRouterModel = localStorage.getItem('nktg_openrouter_model') || null;
+
+async function fetchOpenRouterFreeModels() {
+  const res = await fetch('https://openrouter.ai/api/v1/models');
+  if (!res.ok) throw new Error(`Không lấy được danh sách model (HTTP ${res.status})`);
+  const data = await res.json();
+  const ids = (data?.data || []).map(m => m.id).filter(id => id?.endsWith(':free'));
+  // Prioritize well-known families first for better quality.
+  const preferred = /(llama|deepseek|qwen|gemma|gpt|mistral)/i;
+  const prioritized = ids.filter(id => preferred.test(id));
+  const rest = ids.filter(id => !prioritized.includes(id));
+  return [...prioritized, ...rest].slice(0, 15);
+}
 
 async function tryOpenRouterModel(key, model, prompt) {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -452,8 +460,22 @@ async function callOpenRouter(key, prompt) {
       localStorage.removeItem('nktg_openrouter_model');
     }
   }
+
+  if (statusField) statusField.textContent = 'đang lấy danh sách model free...';
+  let candidates;
+  try {
+    candidates = await fetchOpenRouterFreeModels();
+  } catch (e) {
+    if (statusField) statusField.textContent = 'không lấy được danh sách model';
+    throw e;
+  }
+  if (!candidates.length) {
+    if (statusField) statusField.textContent = 'không có model :free nào hiện tại';
+    throw new Error('OpenRouter hiện không có model :free nào trong catalog.');
+  }
+
   let lastErr = null;
-  for (const model of OPENROUTER_CANDIDATES) {
+  for (const model of candidates) {
     if (statusField) statusField.textContent = `đang thử ${model}...`;
     try {
       const text = await tryOpenRouterModel(key, model, prompt);
@@ -467,7 +489,7 @@ async function callOpenRouter(key, prompt) {
     }
   }
   if (statusField) statusField.textContent = 'không tìm được model free nào khả dụng';
-  throw lastErr || new Error('Không có model OpenRouter :free nào khả dụng.');
+  throw lastErr || new Error('Không có model OpenRouter :free nào khả dụng lúc này.');
 }
 
 const ZHIPU_CANDIDATES = ['glm-4.7-flash', 'glm-4.5-flash', 'glm-4-flash']; // 4.5-flash retired Jan 2026 -> 4.7-flash; 4-flash永久免费 fallback
