@@ -29,7 +29,16 @@
   .results { display:grid; gap:12px; margin-top:20px; }
   .result-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
   .result-card h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
-  .result-card .text { font-size:14px; line-height:1.55; white-space:pre-wrap; }
+  .result-card .text { font-size:14px; line-height:1.55; }
+  .result-card .text p { margin: 0 0 10px; }
+  .result-card .text h3, .result-card .text h4, .result-card .text h5, .result-card .text h6 { margin: 14px 0 6px; line-height:1.3; }
+  .result-card .text ul, .result-card .text ol { margin: 4px 0 10px; padding-left: 22px; }
+  .result-card .text li { margin: 2px 0; }
+  .result-card .text table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  .result-card .text th, .result-card .text td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
+  .result-card .text th { background: #f1f5f9; font-weight: 600; }
+  .result-card .text code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .result-card .text hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   .error { color:var(--err); }
   .loading { color:var(--muted); font-style:italic; }
 </style>
@@ -69,10 +78,6 @@
       <label>5. Nvidia</label>
       <input type="password" id="key_nvidia" autocomplete="off">
       <input type="text" id="url_nvidia" placeholder="Proxy URL (bắt buộc — Nvidia chặn CORS)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
-    </div>
-    <div class="key-field">
-      <label style="color:#cbd5e1;">6. GitHub Models</label>
-      <input type="password" disabled placeholder="Đã bị GitHub khai tử vĩnh viễn từ 30/7/2026 — không còn API" style="background:#f1f5f9;">
     </div>
     <div class="key-field">
       <label>7. Cohere</label>
@@ -131,6 +136,88 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+// Minimal self-contained markdown -> HTML renderer (no CDN/library).
+// Escapes raw HTML first (safety), then applies markdown rules on top.
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderMarkdown(md) {
+  const escaped = escapeHtml(md);
+  const lines = escaped.split('\n');
+  let html = '';
+  let inList = null; // 'ul' | 'ol' | null
+  let inTable = false;
+  let tableRows = [];
+
+  const closeList = () => { if (inList) { html += `</${inList}>`; inList = null; } };
+  const flushTable = () => {
+    if (!tableRows.length) return;
+    const isSep = row => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(row);
+    let rows = tableRows.filter(r => !isSep(r));
+    html += '<table>';
+    rows.forEach((row, i) => {
+      const cells = row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const tag = i === 0 ? 'th' : 'td';
+      html += '<tr>' + cells.map(c => `<${tag}>${inline(c)}</${tag}>`).join('') + '</tr>';
+    });
+    html += '</table>';
+    tableRows = [];
+    inTable = false;
+  };
+
+  function inline(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
+
+  for (const raw of lines) {
+    const line = raw;
+
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      inTable = true;
+      tableRows.push(line);
+      continue;
+    } else if (inTable) {
+      flushTable();
+    }
+
+    if (/^#{1,6}\s+/.test(line)) {
+      closeList();
+      const level = line.match(/^#+/)[0].length;
+      const text = line.replace(/^#{1,6}\s+/, '');
+      html += `<h${Math.min(level+2,6)}>${inline(text)}</h${Math.min(level+2,6)}>`;
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      if (inList !== 'ul') { closeList(); html += '<ul>'; inList = 'ul'; }
+      html += `<li>${inline(line.replace(/^\s*[-*]\s+/, ''))}</li>`;
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      if (inList !== 'ol') { closeList(); html += '<ol>'; inList = 'ol'; }
+      html += `<li>${inline(line.replace(/^\s*\d+\.\s+/, ''))}</li>`;
+      continue;
+    }
+    if (/^\s*---+\s*$/.test(line)) {
+      closeList();
+      html += '<hr>';
+      continue;
+    }
+    closeList();
+    if (line.trim() === '') {
+      html += '<br>';
+    } else {
+      html += `<p>${inline(line)}</p>`;
+    }
+  }
+  closeList();
+  flushTable();
+  return html;
+}
 
 // Some APIs return plain text (not JSON) on errors like 410/502/etc.
 // This avoids "Unexpected token ... is not valid JSON" masking the real error.
@@ -835,7 +922,7 @@ $('runBtn').addEventListener('click', async () => {
     fn(key, prompt)
       .then(text => {
         card.querySelector('.text').className = 'text';
-        card.querySelector('.text').textContent = text;
+        card.querySelector('.text').innerHTML = renderMarkdown(text);
       })
       .catch(err => {
         card.querySelector('.text').className = 'text error';
