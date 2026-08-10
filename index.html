@@ -91,7 +91,11 @@
       <input type="text" id="proxy_cloudflare" placeholder="Proxy URL (bắt buộc — CORS)" value="https://sambanova-proxy.nktg-org.workers.dev" style="margin-top:4px;">
       <div id="model_cloudflare" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
     </div>
-    <div class="key-field"><label>9. OpenRouter</label><input type="password" id="key_openrouter" autocomplete="off"></div>
+    <div class="key-field">
+      <label>9. OpenRouter</label>
+      <input type="password" id="key_openrouter" autocomplete="off">
+      <div id="model_openrouter" style="font-size:10.5px; color:#94a3b8; margin-top:3px; min-height:14px;"></div>
+    </div>
     <div class="key-field"><label>10. Mistral</label><input type="password" id="key_mistral" autocomplete="off"></div>
     <div class="key-field">
       <label>11. Hugging Face</label>
@@ -412,17 +416,61 @@ async function callMistral(key, prompt) {
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
-async function callOpenRouter(key, prompt) {
+// Only :free-suffixed models — guarantees $0 cost regardless of account balance.
+const OPENROUTER_CANDIDATES = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'deepseek/deepseek-chat:free',
+  'qwen/qwen3-coder:free',
+  'google/gemma-3-27b-it:free',
+];
+let cachedOpenRouterModel = localStorage.getItem('nktg_openrouter_model') || null;
+
+async function tryOpenRouterModel(key, model, prompt) {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body: JSON.stringify({ model:'openai/gpt-4o-mini', messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model, messages:[{role:'user',content:prompt}] })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || res.status);
+  const data = await safeJson(res);
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.retryable = [400, 404, 429].includes(res.status);
+    throw err;
+  }
   return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
 }
 
-const ZHIPU_CANDIDATES = ['glm-4.5-flash', 'glm-4-flash']; // both documented as 永久免费 (permanently free)
+async function callOpenRouter(key, prompt) {
+  const statusField = $('model_openrouter');
+  if (cachedOpenRouterModel) {
+    try {
+      const text = await tryOpenRouterModel(key, cachedOpenRouterModel, prompt);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + cachedOpenRouterModel + ' (free, đã lưu)';
+      return text;
+    } catch (e) {
+      cachedOpenRouterModel = null;
+      localStorage.removeItem('nktg_openrouter_model');
+    }
+  }
+  let lastErr = null;
+  for (const model of OPENROUTER_CANDIDATES) {
+    if (statusField) statusField.textContent = `đang thử ${model}...`;
+    try {
+      const text = await tryOpenRouterModel(key, model, prompt);
+      cachedOpenRouterModel = model;
+      localStorage.setItem('nktg_openrouter_model', model);
+      if (statusField) statusField.textContent = 'Đang dùng: ' + model + ' (free, đã lưu cho lần sau)';
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retryable) throw e;
+    }
+  }
+  if (statusField) statusField.textContent = 'không tìm được model free nào khả dụng';
+  throw lastErr || new Error('Không có model OpenRouter :free nào khả dụng.');
+}
+
+const ZHIPU_CANDIDATES = ['glm-4.7-flash', 'glm-4.5-flash', 'glm-4-flash']; // 4.5-flash retired Jan 2026 -> 4.7-flash; 4-flash永久免费 fallback
 let cachedZhipuModel = localStorage.getItem('nktg_zhipu_model') || null;
 
 async function tryZhipuModel(key, model, prompt) {
